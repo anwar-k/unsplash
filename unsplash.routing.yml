@@ -1,0 +1,7 @@
+unsplash.settings:
+ path: '/admin/structure/unsplash/settings'
+ defaults:
+   _title: 'unsplash Browser'
+   _form: '\Drupal\unsplash\Form\UnsplashConfigurationForm'
+ requirements:
+   _permission: 'administer site configuration'
