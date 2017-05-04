@@ -21,6 +21,9 @@ use GuzzleHttp\Client;
 use Drupal\Core\Link;
 use Drupal\media_entity\Entity\Media;
 use Drupal\field\FieldInfo;
+use Drupal\Component\Utility\UrlHelper;
+use Drupal\file\Entity\File;
+use Drupal\file\FileInterface;
 
 /**
  * Provides an Entity Browser widget that uploads new files.
@@ -101,12 +104,8 @@ class UnsplashWidget extends WidgetBase {
     'upload_location' => 'public://unsplash',
     'max_filesize' => file_upload_max_size() / pow(Bytes::KILOBYTE, 2) . 'M',
     'extensions' => 'jpg jpeg gif png',
+    'items_per_page' => 10,
     ] + parent::defaultConfiguration();
-  }
-
-  public function setEntity(&$form, $form_state) {
-    //$values = $form->getValues();
-    ddl($form);
   }
 
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
@@ -125,10 +124,6 @@ class UnsplashWidget extends WidgetBase {
     '#default_value' => $this->configuration['media_bundle'],
     '#required' => TRUE,
     '#options' => [],
-    '#ajax' => array(
-        'callback' => array($this, 'setEntity'),
-        'event' => 'change',
-        ),    
     ];
 
     foreach ($this->entityTypeManager->getStorage('media_bundle')->loadMultiple() as $bundle) {
@@ -143,9 +138,6 @@ class UnsplashWidget extends WidgetBase {
         '@create_bundle' => Link::createFromRoute($this->t('create an Unsplash media bundle'), 'entity.media_bundle.add_form')->toString(),
         ]);
     }
-
-
-
     return $form;
   }
 
@@ -156,10 +148,9 @@ class UnsplashWidget extends WidgetBase {
 
     $media = [];
 
-    $selected_images = $form_state->getValue('unsplash_urls');
-    $selected_ids = array_keys(array_filter($form_state->getValue('selection', [])));
+    $result = $form_state->getValue('thumbnails');
+    $selected_ids = array_filter($result);
     foreach ($selected_ids as $id) {
-
       $query = \Drupal::entityQuery('media');
       $query->condition('status', 1);
       $query->condition('bundle', 'unplash');
@@ -169,15 +160,16 @@ class UnsplashWidget extends WidgetBase {
         $media[] = $entity_id;
       }
       else {
-        $data = file_get_contents('https://api.unsplash.com/photos/'. $id .'?');
-        $file = file_save_data($data, 'public://druplicon.png', FILE_EXISTS_REPLACE);
+        $url = $form['widget']['thumbnails']['#options'][$id]['raw'];
+        $file = system_retrieve_file($url, $destination = NULL, $managed = TRUE, $replace = FILE_EXISTS_RENAME);
+        $file->save();
         $media_entity = Media::create([
           'bundle' => 'unsplash',
           'field_unsplash_id' => $id,
-          'field_unsplash_image' => array('uri'=> 'https://unsplash.com/?photo=' . $id ),
+          'field_unsplash_image' => array('target_id'=> $file->id() ),
           ]);
         $media_entity->save();
-        $media[] = $media_entity->id();
+        $media[] = $media_entity;
       }
     }
     return $media;
@@ -188,12 +180,10 @@ class UnsplashWidget extends WidgetBase {
    */
   public function getForm(array &$original_form, FormStateInterface $form_state, array $additional_widget_parameters) {
     $form = parent::getForm($original_form, $form_state, $additional_widget_parameters);
-
     $form['search'] = [
     '#type' => 'fieldset',
     '#title' => $this->t('Search'),
     ];
-
 
     $form['search']['keyword'] = [
     '#type' => 'search',
@@ -209,41 +199,37 @@ class UnsplashWidget extends WidgetBase {
 
     if(!empty($form_state->get('unsplash_keyword'))) {
 
-      $query = [
-      'keyword' => $form_state->get('unsplash_keyword'),
+      $parms = [
+      'query' => $form_state->get('unsplash_keyword'),
       'page' => EntityBrowserPagerElement::getCurrentPage($form_state),
-      'client_id' => '25039e7b5b8cc989c2a48f439bed59104f8fb11807b6a297755ffe93f330aa4a',
+      'client_id' => \Drupal::service('config.factory')->get('unsplash.settings')->get('appid'),
+      'per_page' => $this->configuration['items_per_page'],
       ]; 
+
+      $parms = UrlHelper::buildQuery($parms, $parent = '');
+
       $client = \Drupal::httpClient();
-      $request = $client->get('https://api.unsplash.com/search/photos?query=' . $query['keyword'] . '&page=' . $query['page'] . '&client_id=' . $query['client_id']);
+      $request = $client->get('https://api.unsplash.com/search/photos?'.$parms);
       $response = json_decode($request->getBody());
       if (!empty($response->results)) {
         foreach ($response->results as $media) {
-
-          $form['thumbnails']['thumbnail-' . $media->id] = [
-          '#type' => 'container',
-          '#attributes' => ['id' => $media->id, 'class' => ['grid-item']],
-          ];
-          $form['thumbnails']['thumbnail-' . $media->id]['check_' . $media->id] = [
-          '#type' => 'checkbox',
-          '#parents' => ['selection', $media->id],
-          '#attributes' => ['class' => ['item-selector']],
-          ];
-
-          $form['thumbnails']['thumbnail-' . $media->id['image']] = [
-          '#theme' => 'unsplash_search_item',
-          '#thumbnail_uri' => $media->urls->thumb,
-          '#name' => $query['keyword'],
-          ]  ;
+          $options[$media->id]['id'] = $media->id;
+          $options[$media->id]['thumb'] = $media->urls->thumb;
+          $options[$media->id]['raw'] = $media->urls->raw;
         }
+
+        $form['thumbnails'] = [
+        '#type' => 'checkboxes',
+        '#options' => $options,
+        '#theme' => 'unsplash_search_item',
+        '#images' => $options,
+        ];
 
         $form['pager_eb'] = [
         '#type' => 'entity_browser_pager',
         '#total_pages' => $response->total_pages,
         '#weight' => 20,
         ];
-
-
       }
       else {
         $form['empty_message'] = [
@@ -273,7 +259,6 @@ class UnsplashWidget extends WidgetBase {
 
     EntityBrowserPagerElement::setCurrentPage($form_state);
     $form_state->setRebuild();
-    
   }
 
   /**
@@ -283,13 +268,13 @@ class UnsplashWidget extends WidgetBase {
     if (!empty($form_state->getTriggeringElement()['#eb_widget_main_submit'])) {
       try {
         $media = $this->prepareEntities($form, $form_state);
-        array_walk($media, function (MediaInterface $media_item) {
+        array_walk($media, function (Media $media_item) {
           $media_item->save();
         });
         $this->selectEntities($media, $form_state);
       }
       catch (\UnexpectedValueException $e) {
-        drupal_set_message($this->t('Bynder integration is not configured correctly. Please contact the site administrator.'), 'error');
+        drupal_set_message($this->t('Unsplash integration is not configured correctly. Please contact the site administrator.'), 'error');
       }
     }
   }

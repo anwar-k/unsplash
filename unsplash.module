@@ -1,29 +1,16 @@
 <?php
 
 /**
- * @file
- * Provides bynder integration.
- */
-
-use Drupal\bynder\Plugin\MediaEntity\Type\Bynder;
-use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\Routing\RouteMatchInterface;
-use Drupal\Core\Url;
-use Drupal\media_entity\Entity\MediaBundle;
-use Drupal\media_entity\MediaInterface;
-
-
-/**
  * Implements hook_theme().
  */
-function unsplash_browser_theme($existing, $type, $theme, $path) {
-  return [
-    'unsplash_search_item' => [
-      'variables' => [
-        'thumbnail_uri' => '',
-        'name' => t('N/A'),
-        'type' => '',
-      ],
-    ],
-  ];
+function unsplash_theme($existing, $type, $theme, $path) {
+	return [
+	'unsplash_search_item' => [
+	'template' => 'unsplash-search-item',
+	'variables' => [
+		'images' => '',
+	],
+
+	],
+	];
 }

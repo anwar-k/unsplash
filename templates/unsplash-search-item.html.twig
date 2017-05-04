@@ -9,8 +9,7 @@
  * - type: Type of the bydner asset.
  */
 #}
-<img src="{{ thumbnail_uri }}" alt="{{ name }}"/>
-<div class="more-info">
-  <h4 class="name">{{ name }}</h4>
-  <div class="type">({{ type }})</div>
-</div>
+	{% for image, key in images %}
+        <img src="{{key.thumb}}" alt="{{key.id}}"/>
+        <input data-drupal-selector="edit-thumbnails-{{ key.id }}" type="checkbox" id="edit-thumbnails-{{ key.id }}" name="thumbnails[{{ key.id }}]" value="{{ key.id }}" class="form-checkbox">
+    {% endfor %}
